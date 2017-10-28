@@ -270,11 +270,6 @@ def _SelfAdjointEigV2Grad(op, grad_e, grad_v):
 def _SvdGrad(op, grad_s, grad_u, grad_v):
   """Gradient for Svd based on Giles' algorithm. Reference at top of file."""
 
-  if op.get_attr("compute_uv") and not op.get_attr("full_matrices"):
-    raise NotImplementedError(
-        "SVD gradient is not implemented for compute_uv=True and "
-        "full_matrices=False.")
-
   a = op.inputs[0]
   a_shape = a.get_shape().with_rank_at_least(2)
 
@@ -300,7 +295,7 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
         "SVD gradient has not been implemented for input with unknown "
         "inner matrix shape.")
 
-  if not op.get_attr("full_matrices") or not op.get_attr("compute_uv"):
+  if not op.get_attr("compute_uv"):
     s, u, v = linalg_ops.svd(a, compute_uv=True, full_matrices=True)
   else:
     s = op.outputs[0]
@@ -334,9 +329,9 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
     # multiple singular values with value zero. I am not sure if this is a true
     # instability or if it simply throws off the finite difference gradient
     # checker.
-    if abs(m - n) > 1:
+    if op.get_attr("full_matrices") and abs(m - n) > 1:
       raise NotImplementedError(
-          "svd gradient is not implemented for abs(m - n) > 1")
+          "svd gradient is not implemented for abs(m - n) > 1 when full_matrices is True")
     s_mat = array_ops.matrix_diag(s)
     s2 = math_ops.square(s)
 
@@ -367,17 +362,20 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
         grad_s_mat + math_ops.matmul(f_u + _linalg.adjoint(f_u), s_mat) +
         math_ops.matmul(s_mat, f_v + _linalg.adjoint(f_v)))
 
-    if m != n:
+    if op.get_attr("full_matrices") and m != n:
       grad_a_nouv = array_ops.concat(
           [grad_a_nouv, math_ops.matmul(s_inv_mat, dv2)], -1)
 
+    grad_a = math_ops.matmul(u, math_ops.matmul(grad_a_nouv, v, adjoint_b=True))
+
+    if not op.get_attr("full_matrices"):
+      u_s_inv = math_ops.matmul(u, s_inv_mat)
+      u_s_inv_gvt = math_ops.matmul(u_s_inv, grad_v, adjoint_b=True)
+      proj = linalg_ops.eye(n, dtype=v.dtype) - math_ops.matmul(v, v, adjoint_b=True)
+      grad_a += math_ops.matmul(u_s_inv_gvt, proj)
+
     if use_adjoint:
-      # Use (U X V^H)^H = V (U X)^H.
-      grad_a = math_ops.matmul(
-          v, math_ops.matmul(u, grad_a_nouv), adjoint_b=True)
-    else:
-      grad_a = math_ops.matmul(u,
-                               math_ops.matmul(grad_a_nouv, v, adjoint_b=True))
+      grad_a = array_ops.matrix_transpose(grad_a)
 
     grad_a.set_shape(a_shape)
     return grad_a
