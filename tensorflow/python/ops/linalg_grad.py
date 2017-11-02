@@ -312,6 +312,11 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
     grad_u, grad_v = grad_v, grad_u
 
   with ops.control_dependencies([grad_s, grad_u, grad_v]):
+
+    if op.get_attr("full_matrices"):
+      v = v[..., :, :m]
+      grad_v = grad_v[..., :, :m]
+
     grad_s_mat = array_ops.matrix_diag(grad_s)
     if not op.get_attr("compute_uv"):
       if use_adjoint:
@@ -350,29 +355,19 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
     u_gu = math_ops.matmul(u, grad_u, adjoint_a=True)
     v_gv = math_ops.matmul(v, grad_v, adjoint_a=True)
 
-    if m == n:
-      f_u = f * u_gu
-      f_v = f * v_gv
-    else:
-      dv2 = array_ops.matrix_transpose(v_gv[..., m:n, :m]) - v_gv[..., :m, m:n]
-      f_u = f * u_gu
-      f_v = f * v_gv[..., :m, :m]
+    f_u = f * u_gu
+    f_v = f * v_gv
 
     grad_a_nouv = (
         grad_s_mat + math_ops.matmul(f_u + _linalg.adjoint(f_u), s_mat) +
         math_ops.matmul(s_mat, f_v + _linalg.adjoint(f_v)))
 
-    if op.get_attr("full_matrices") and m != n:
-      grad_a_nouv = array_ops.concat(
-          [grad_a_nouv, math_ops.matmul(s_inv_mat, dv2)], -1)
-
     grad_a = math_ops.matmul(u, math_ops.matmul(grad_a_nouv, v, adjoint_b=True))
 
-    if not op.get_attr("full_matrices"):
-      u_s_inv = math_ops.matmul(u, s_inv_mat)
-      u_s_inv_gvt = math_ops.matmul(u_s_inv, grad_v, adjoint_b=True)
-      proj = linalg_ops.eye(n, dtype=v.dtype) - math_ops.matmul(v, v, adjoint_b=True)
-      grad_a += math_ops.matmul(u_s_inv_gvt, proj)
+    u_s_inv = math_ops.matmul(u, s_inv_mat)
+    u_s_inv_gvt = math_ops.matmul(u_s_inv, grad_v, adjoint_b=True)
+    proj = linalg_ops.eye(n, dtype=v.dtype) - math_ops.matmul(v, v, adjoint_b=True)
+    grad_a += math_ops.matmul(u_s_inv_gvt, proj)
 
     if use_adjoint:
       grad_a = array_ops.matrix_transpose(grad_a)
