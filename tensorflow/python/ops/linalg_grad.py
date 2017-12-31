@@ -300,12 +300,17 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
         "SVD gradient has not been implemented for input with unknown "
         "inner matrix shape.")
 
+  grad_s_mat = array_ops.matrix_diag(grad_s)
+
   if not op.get_attr("compute_uv"):
     s, u, v = linalg_ops.svd(a, compute_uv=True)
-  else:
-    s = op.outputs[0]
-    u = op.outputs[1]
-    v = op.outputs[2]
+    grad_a = math_ops.matmul(u, math_ops.matmul(grad_s_mat, v, adjoint_b=True))
+    grad_a.set_shape(a_shape)
+    return grad_a
+
+  s = op.outputs[0]
+  u = op.outputs[1]
+  v = op.outputs[2]
 
   use_adjoint = False
   if m > n:
@@ -317,17 +322,6 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
     grad_u, grad_v = grad_v, grad_u
 
   with ops.control_dependencies([grad_s, grad_u, grad_v]):
-    grad_s_mat = array_ops.matrix_diag(grad_s)
-    if not op.get_attr("compute_uv"):
-      if use_adjoint:
-        grad_a = math_ops.matmul(
-            v, math_ops.matmul(u, grad_s_mat), adjoint_b=True)
-      else:
-        grad_a = math_ops.matmul(
-            u, math_ops.matmul(grad_s_mat, v, adjoint_b=True))
-      grad_a.set_shape(a_shape)
-      return grad_a
-
     if op.get_attr("full_matrices") and abs(m - n) > 1:
       raise NotImplementedError(
           "svd gradient is not implemented for abs(m - n) > 1 "
