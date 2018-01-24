@@ -278,7 +278,10 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
   a = op.inputs[0]
   a_shape = a.get_shape().with_rank_at_least(2)
 
-  if op.get_attr("compute_uv"):
+  compute_uv = op.get_attr("compute_uv")
+  full_matrices = op.get_attr("full_matrices")
+
+  if compute_uv:
     # TODO(rmlarsen): Make this work with complex types.
     if a.dtype.is_complex:
       raise NotImplementedError(
@@ -302,7 +305,7 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
 
   grad_s_mat = array_ops.matrix_diag(grad_s)
 
-  if not op.get_attr("compute_uv"):
+  if not compute_uv:
     s, u, v = linalg_ops.svd(a, compute_uv=True)
     grad_a = math_ops.matmul(u, math_ops.matmul(grad_s_mat, v, adjoint_b=True))
     grad_a.set_shape(a_shape)
@@ -322,7 +325,7 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
     grad_u, grad_v = grad_v, grad_u
 
   with ops.control_dependencies([grad_s, grad_u, grad_v]):
-    if op.get_attr("full_matrices") and abs(m - n) > 1:
+    if full_matrices and abs(m - n) > 1:
       raise NotImplementedError(
           "svd gradient is not implemented for abs(m - n) > 1 "
           "when full_matrices is True")
@@ -364,7 +367,7 @@ def _SvdGrad(op, grad_s, grad_u, grad_v):
       gv1t_v1 = math_ops.matmul(gv1t, v1)
       term2_nous = gv1t - math_ops.matmul(gv1t_v1, v1, adjoint_b=True)
 
-      if op.get_attr("full_matrices"):
+      if full_matrices:
         v2 = v[..., :, m:n]
         grad_v2 = grad_v[..., :, m:n]
 
